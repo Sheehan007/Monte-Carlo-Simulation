@@ -1,0 +1,70 @@
+import numpy as np 
+import matplotlib.pyplot as plt
+import pandas as pd
+import yfinance as yf
+import seaborn as sns
+
+# 1. Import the necessary libraries and select 30 random stock from the S&P 500. Also, set a random seed for reproductibility. 
+np.random.seed(42)
+
+# 2. Fetching the S&P 500 tickers from wikipedia and choosing 30 random stocks from them.  
+url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+sp500_df = pd.read_html(url)[0]
+tickers = list(sp500_df['Symbol'])
+
+# 3. Fetching the data of 30 random selected stocks
+selected_tickers = sp500_df['Symbol'].sample(30, random_state=42).tolist()
+data = yf.download(selected_tickers, start='2018-01-01', end='2024-01-01')['Close']
+
+# 4. Calculating Daily Returns which will be used to calculate mean and standard deviation.
+# Furthermore, we will calculate the annualized mean returns and covariance matrix, which are 
+# essential for modeling the future returns on the portfolio. 
+daily_returns = data.pct_change().dropna()
+mean_returns = daily_returns.mean()*252
+cov_matrix = daily_returns.cov()*252
+
+# 5. Now we will set up Monte Carlo parameters. We will define the number of simulations and the time period. 
+num_simulations = 10000
+num_days = 252
+
+# 6. Run Monte Carlo simulations. For each simulation, we will have to create random portfolio weights, 
+# calculate daily portfolio returns and compound these returns over the time horizon. 
+simulated_portfolio_values = []
+
+for _ in range(num_simulations): 
+    weights = np.random.random(len(selected_tickers))
+    weights = weights / np.sum(weights)
+    # Calculating portfolio mean and standard deviation 
+    portfolio_return = np.dot(weights, mean_returns)
+    portfolio_std_dev = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    # Simluating daily returns for portfolio
+    daily_returns_simulation = np.random.normal(portfolio_return / num_days, portfolio_std_dev / np.sqrt(num_days), num_days)
+    portfolio_value = np.cumprod(1 + daily_returns_simulation)
+    # Storing final portfolio value
+    simulated_portfolio_values.append(portfolio_value[-1])
+simulated_portfolio_values = np.array(simulated_portfolio_values)
+
+# 7. Analyzing the risk profile of the portfolio by measuring the mean, standard deviation, 
+# value at risk and the expected shortfall. 
+mean_final_value = np.mean(simulated_portfolio_values)
+std_final_value = np.std(simulated_portfolio_values)
+var_5 = np.percentile(simulated_portfolio_values, 5)
+es_5 = simulated_portfolio_values[simulated_portfolio_values <= var_5].mean()
+
+print (f'Mean final portfolio value:${mean_final_value:,.2f}')
+print (f'Standard Deviation of portfolio value:${std_final_value:,.2f}')
+print (f'5% VaR:${mean_final_value:,.2f}')
+print (f'5% Expected Shortfall:${mean_final_value:,.2f}')
+
+#8. Visulizing the results 
+plt.figure(figsize=(10,6))
+sns.histplot(simulated_portfolio_values, bins=50, kde=True, color='skyblue')
+plt.axvline(mean_final_value, color='green', linestyle='--', label=f'Mean: ${mean_final_value:,.2f}')
+plt.axvline(var_5, color='red', linestyle='--', label=f'5% VaR: ${var_5:,.2f}')
+plt.axvline(es_5, color='orange', linestyle='--', label=f'5% ES: ${es_5:,.2f}')
+plt.title('Distribution of Simulated Portfolio Final Values ')
+plt.xlabel('Portfolio Value ($)')
+plt.ylabel('Frequency')
+plt.legend()
+plt.show()
+
